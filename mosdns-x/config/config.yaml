@@ -113,12 +113,12 @@ plugins:
         
         - default_upstream
         
-        - if: cloudflare_ip_matcher
-          exec:
-            - _drop_response
-            - redirect_to_rocket
-            - default_upstream
-            - _return
+   #     - if: cloudflare_ip_matcher
+   #       exec:
+   #         - _drop_response
+   #         - redirect_to_rocket
+   #         - default_upstream
+   #         - _return
         
         - if: cdn_cname_matcher
           exec:
