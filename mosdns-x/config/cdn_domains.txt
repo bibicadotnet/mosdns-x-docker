@@ -18,8 +18,6 @@ fastly.net
 aaplimg.com
 zjcdn.com
 fastecn.com
-fbcdn.net
-facebook.com
 dnspod.com
 dnsv5.com
 dnse3.com
