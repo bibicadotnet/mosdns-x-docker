@@ -1,0 +1,26 @@
+services:
+  mosdns:
+    build:
+      context: ./mosdns-x
+    container_name: mosdns-x
+    restart: unless-stopped
+    ports:
+      - "5301:5301/tcp"
+      - "5301:5301/udp"
+    volumes:
+      - ./mosdns-x/config:/home/mosdns-x/config:ro
+      - ./mosdns-x/log:/home/mosdns-x/log
+    networks:
+      reverse_proxy:
+        ipv4_address: 172.18.0.6
+    logging:
+      driver: "none"
+
+networks:
+  reverse_proxy:
+    driver: bridge
+    name: reverse_proxy
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.18.0.0/16
