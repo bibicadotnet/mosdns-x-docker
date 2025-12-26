@@ -1,15 +1,39 @@
 services:
+  caddy:
+    image: bibica/caddy-dns-cloudflare
+    container_name: caddy
+    restart: always
+    networks:
+      reverse_proxy:
+        ipv4_address: 172.18.0.2
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    environment:
+      - CLOUDFLARE_API_TOKEN=XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    logging:
+      driver: "none"
+
   mosdns:
     build:
       context: ./mosdns-x
     container_name: mosdns-x
-    restart: unless-stopped
+    restart: always
     ports:
-      - "5301:5301/tcp"
-      - "5301:5301/udp"
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "853:853/tcp"
+      - "853:853/udp"
     volumes:
       - ./mosdns-x/config:/home/mosdns-x/config:ro
       - ./mosdns-x/log:/home/mosdns-x/log
+      - ./mosdns-x/rules:/home/mosdns-x/rules      
+      - ./caddy_data:/caddy_data:ro
     networks:
       reverse_proxy:
         ipv4_address: 172.18.0.6
