@@ -1,87 +1,124 @@
 # ==================== LOG ====================
 log:
-  level: info
+  level: error # debug, info, error, warn
   file: "log/mosdns.log"
 
 # ==================== DATA PROVIDERS ====================
 data_providers:
   - tag: cdn_domains
-    file: "config/cdn_domains.txt"
+    file: "rules/cdn_domains.txt"
     auto_reload: true
-  
+
   - tag: google_domains
-    file: "config/google_upstream.txt"
+    file: "rules/google_upstream.txt"
     auto_reload: true
-  
+
   - tag: mullvad_domains
-    file: "config/mullvad_upstream.txt"
+    file: "rules/mullvad_upstream.txt"
     auto_reload: true
-  
-  - tag: cloudflare_ips
-    file: "config/cloudflare_ipv4.txt"
+
+  - tag: allowlist_domains
+    file: "rules/allowlists.txt"
+    auto_reload: true
+
+  - tag: blocklist_domains
+    file: "rules/blocklists.txt"
+    auto_reload: true
+
+  - tag: redirect_rules
+    file: "rules/redirect_rules.txt"
     auto_reload: true
 
 # ==================== PLUGINS ====================
 plugins:
-  # Matchers
+  # ===== RATE LIMITING =====
+  - tag: rate_limiter
+    type: client_limiter
+    args:
+      max_qps: 20 # Maximum 20 queries per second per client
+      v4_mask: 32
+      v6_mask: 48
+
+  # ===== ECS =====
+  - tag: ecs_handler
+    type: ecs
+    args:
+      auto: true
+      force_overwrite: true
+
+  # ===== TTL =====
+  - tag: ttl_1
+    type: ttl
+    args:
+      minimal_ttl: 1
+      maximum_ttl: 1
+
+  # ===== DOMAIN MATCHERS =====
   - tag: cdn_domain_matcher
     type: query_matcher
     args:
       domain:
         - "provider:cdn_domains"
-  
+
   - tag: google_domain_matcher
     type: query_matcher
     args:
       domain:
         - "provider:google_domains"
-  
+
   - tag: mullvad_domain_matcher
     type: query_matcher
     args:
       domain:
         - "provider:mullvad_domains"
-  
+
+  - tag: allowlist_matcher
+    type: query_matcher
+    args:
+      domain:
+        - "provider:allowlist_domains"
+
+  - tag: blocklist_matcher
+    type: query_matcher
+    args:
+      domain:
+        - "provider:blocklist_domains"
+
+  # ===== RESPONSE MATCHERS =====
   - tag: cdn_cname_matcher
     type: response_matcher
     args:
       cname:
         - "provider:cdn_domains"
-  
-  - tag: cloudflare_ip_matcher
-    type: response_matcher
-    args:
-      ip:
-        - "provider:cloudflare_ips"
-  
-  # Redirect
-  - tag: redirect_to_rocket
+
+  # ===== DNS REDIRECT / REWRITE =====
+  - tag: dns_redirect
     type: redirect
     args:
       rule:
-        - "regexp:.+ rocket.net"
-  
-  # Upstreams
+        - "provider:redirect_rules"
+
+  # ===== UPSTREAMS =====
   - tag: cdn_upstream
     type: fast_forward
     args:
       upstream:
         - addr: "https://bu0eg1tdzu.cloudflare-gateway.com/dns-query"
-#        - addr: "https://97nsi83nhg.cloudflare-gateway.com/dns-query"
-  
+        # - addr: "https://97nsi83nhg.cloudflare-gateway.com/dns-query"
+
   - tag: google_upstream
     type: fast_forward
     args:
       upstream:
         - addr: "https://8.8.8.8/dns-query"
         - addr: "https://8.8.4.4/dns-query"
-  
+
   - tag: mullvad_upstream
     type: fast_forward
     args:
       upstream:
         - addr: "https://dns.mullvad.net/dns-query"
-  
+
   - tag: default_upstream
     type: fast_forward
     args:
@@ -89,48 +126,68 @@ plugins:
         - addr: "https://1.1.1.1/dns-query"
         - addr: "https://1.0.0.1/dns-query"
 
-  # Main sequence
+# ==================== MAIN SEQUENCE ====================
   - tag: main
     type: sequence
     args:
       exec:
+        - _query_summary
+        - rate_limiter
         - _prefer_ipv4
-        
+        - dns_redirect
+
+        # ===== BLOCK / ALLOW LOGIC =====
+        - if: "blocklist_matcher && !allowlist_matcher"
+          exec:
+            - _new_nxdomain_response
+            - _return
+
+        # ===== DOMAIN ROUTING =====
         - if: google_domain_matcher
           exec:
+            - ecs_handler
             - google_upstream
+            - ttl_1
             - _return
-        
+
         - if: mullvad_domain_matcher
           exec:
             - mullvad_upstream
             - _return
-        
+
         - if: cdn_domain_matcher
           exec:
+            - ecs_handler
             - cdn_upstream
+            - ttl_1
             - _return
-        
+
+        # ===== DEFAULT =====
         - default_upstream
-        
-   #     - if: cloudflare_ip_matcher
-   #       exec:
-   #         - _drop_response
-   #         - redirect_to_rocket
-   #         - default_upstream
-   #         - _return
-        
+
+        # ===== CDN CNAME REWRITE =====
         - if: cdn_cname_matcher
           exec:
-            - _drop_response
+            - ecs_handler
             - cdn_upstream
+            - ttl_1
             - _return
 
 # ==================== SERVERS ====================
 servers:
   - exec: main
     listeners:
-      - protocol: udp
-        addr: "0.0.0.0:5301"
-      - protocol: tcp
-        addr: "0.0.0.0:5301"
+      - protocol: http
+        addr: "0.0.0.0:8090"
+        url_path: "/dns-query"
+        get_user_ip_from_header: "X-Forwarded-For"
+
+      - protocol: tls
+        addr: "0.0.0.0:853"
+        cert: "/caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.bibica.net/dns.bibica.net.crt"
+        key: "/caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.bibica.net/dns.bibica.net.key"
+
+      - protocol: quic
+        addr: "0.0.0.0:853"
+        cert: "/caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.bibica.net/dns.bibica.net.crt"
+        key: "/caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dns.bibica.net/dns.bibica.net.key"

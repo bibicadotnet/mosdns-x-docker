@@ -23,7 +23,11 @@ RUN case "${TARGETARCH}" in \
 
 WORKDIR /home/mosdns-x
 
-EXPOSE 5301/tcp
-EXPOSE 5301/udp
+EXPOSE 53/tcp
+EXPOSE 53/udp
+EXPOSE 853/tcp
+EXPOSE 853/udp
+EXPOSE 8090/tcp
+EXPOSE 8090/udp
 
 CMD ["mosdns", "start", "-c", "/home/mosdns-x/config/config.yaml", "-d", "/home/mosdns-x"]
